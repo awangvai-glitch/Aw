@@ -1,22 +1,27 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+void main() async { // Make main async
+  WidgetsFlutterBinding.ensureInitialized(); // Ensure bindings are initialized
+  final prefs = await SharedPreferences.getInstance(); // Get prefs instance
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => ConnectionProvider()),
+        // Pass SharedPreferences to the provider
+        ChangeNotifierProvider(create: (_) => ConnectionProvider(prefs)),
       ],
       child: const MyApp(),
     ),
   );
 }
 
-// --- Providers for State Management ---
+
+// --- Providers --- 
 
 class ThemeProvider with ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.dark;
@@ -31,120 +36,196 @@ class ThemeProvider with ChangeNotifier {
 enum ConnectionStatus { disconnected, connecting, connected, error }
 
 class ConnectionProvider with ChangeNotifier {
-  static const _channel = MethodChannel('com.iwansrv.sshtunnel/vpn');
+  static const _platform = MethodChannel('com.iwansrv.sshtunnel/vpn');
+  // Separate channel for status updates from the service
+  static const _statusChannel = MethodChannel('com.iwansrv.sshtunnel/vpn/status');
+  final SharedPreferences _prefs;
 
-  final sshHostController = TextEditingController(text: '127.0.0.1');
-  final sshPortController = TextEditingController(text: '22');
-  final sshUserContoller = TextEditingController(text: 'user');
-  final sshPasswordController = TextEditingController(text: 'password');
-
-  final payloadController = TextEditingController();
-  final sniController = TextEditingController();
-
-  final proxyHostController = TextEditingController();
-  final proxyPortController = TextEditingController();
+  // Controllers for all text fields
+  late final TextEditingController sshHostController;
+  late final TextEditingController sshPortController;
+  late final TextEditingController sshUserContoller;
+  late final TextEditingController sshPasswordController;
+  late final TextEditingController payloadController;
+  late final TextEditingController sniController;
+  late final TextEditingController proxyHostController;
+  late final TextEditingController proxyPortController;
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
   ConnectionStatus get status => _status;
 
   final List<String> _logs = ['Aplikasi siap.'];
-  List<String> get logs => _logs;
+  List<String> get logs => List.unmodifiable(_logs);
 
   Map<String, String>? _untrustedHostKeyInfo;
   Map<String, String>? get untrustedHostKeyInfo => _untrustedHostKeyInfo;
 
-  ConnectionProvider() {
-    _channel.setMethodCallHandler(_handleNativeMethod);
+  ConnectionProvider(this._prefs) {
+    _statusChannel.setMethodCallHandler(_handleNativeMethod);
+    _loadSettings(); // Load settings on startup
   }
 
-  Future<void> _handleNativeMethod(MethodCall call) async {
+  void _loadSettings() {
+    // Initialize controllers with saved values or defaults
+    sshHostController = TextEditingController(text: _prefs.getString('sshHost') ?? '10.0.2.2');
+    sshPortController = TextEditingController(text: _prefs.getString('sshPort') ?? '22');
+    sshUserContoller = TextEditingController(text: _prefs.getString('sshUser') ?? 'user');
+    sshPasswordController = TextEditingController(text: _prefs.getString('sshPass'));
+    payloadController = TextEditingController(text: _prefs.getString('payload'));
+    sniController = TextEditingController(text: _prefs.getString('sni'));
+    proxyHostController = TextEditingController(text: _prefs.getString('proxyHost'));
+    proxyPortController = TextEditingController(text: _prefs.getString('proxyPort'));
+
+    // Add listeners to save on change
+    sshHostController.addListener(() => _saveString('sshHost', sshHostController.text));
+    sshPortController.addListener(() => _saveString('sshPort', sshPortController.text));
+    sshUserContoller.addListener(() => _saveString('sshUser', sshUserContoller.text));
+    sshPasswordController.addListener(() => _saveString('sshPass', sshPasswordController.text));
+    payloadController.addListener(() => _saveString('payload', payloadController.text));
+    sniController.addListener(() => _saveString('sni', sniController.text));
+    proxyHostController.addListener(() => _saveString('proxyHost', proxyHostController.text));
+    proxyPortController.addListener(() => _saveString('proxyPort', proxyPortController.text));
+  }
+
+  Future<void> _saveString(String key, String value) async {
+    await _prefs.setString(key, value);
+  }
+
+   Future<void> _handleNativeMethod(MethodCall call) async {
     switch (call.method) {
       case 'updateStatus':
         final args = call.arguments as Map<dynamic, dynamic>;
-        _updateStatusFromString(args['status'] as String);
-        _addLog(args['message'] as String, fromNative: true);
+        final statusStr = args['status'] as String? ?? '';
+        final message = args['message'] as String? ?? '';
+        
+        if (statusStr.isNotEmpty) {
+            _updateStatusFromString(statusStr, message);
+        }
+        if (message.isNotEmpty) {
+            _addLog(message, fromNative: true);
+        }
+
+        notifyListeners();
         break;
+
       case 'verifyHostKey':
         _untrustedHostKeyInfo = Map<String, String>.from(call.arguments as Map);
-        _status = ConnectionStatus.error; // Stop current connection process
+        _status = ConnectionStatus.error; // Force user interaction
         _addLog("Host key verification needed!", fromNative: true);
         notifyListeners();
         break;
       default:
+        _addLog("Panggilan metode tidak dikenal: ${call.method}", fromNative: true);
         break;
     }
   }
 
-  void _updateStatusFromString(String statusStr) {
-    _status = ConnectionStatus.values.firstWhere(
-      (e) => e.toString().split('.').last == statusStr,
-      orElse: () => ConnectionStatus.error
-    );
-    notifyListeners();
+  void _updateStatusFromString(String statusStr, String message) {
+    switch(statusStr) {
+        case "connected":
+            _status = ConnectionStatus.connected;
+            break;
+        case "disconnected":
+            _status = ConnectionStatus.disconnected;
+            break;
+        case "error":
+            _status = ConnectionStatus.error;
+            break;
+        case "connecting":
+             _status = ConnectionStatus.connecting;
+             break;
+        // New case: when VPN is technically on but connection failed
+        case "vpn_on_but_error":
+            _status = ConnectionStatus.error;
+            break;
+    }
   }
 
-  Future<void> connect({String? trustedKey}) async {
-    _status = ConnectionStatus.connecting;
-    if (trustedKey == null) {
-      _logs.clear();
+  Future<void> connect() async {
+    if (_status == ConnectionStatus.connecting) return; // Prevent multiple calls
+
+    if (sshHostController.text.isEmpty ||
+        sshPortController.text.isEmpty ||
+        sshUserContoller.text.isEmpty ||
+        sshPasswordController.text.isEmpty) {
+      _status = ConnectionStatus.error;
+      _addLog("Error: Kolom SSH (Host, Port, User, Pass) wajib diisi!");
+      notifyListeners();
+      return; 
     }
-    _addLog('Memulai koneksi...');
+
+    _status = ConnectionStatus.connecting;
+    _logs.clear();
+    _addLog('Meminta izin VPN...');
     notifyListeners();
 
     try {
       final config = {
-        "sshHost": sshHostController.text,
-        "sshPort": sshPortController.text,
-        "sshUser": sshUserContoller.text,
-        "sshPass": sshPasswordController.text,
+        "host": sshHostController.text,
+        "port": sshPortController.text,
+        "username": sshUserContoller.text,
+        "password": sshPasswordController.text,
         "payload": payloadController.text,
         "sni": sniController.text,
         "proxyHost": proxyHostController.text,
         "proxyPort": proxyPortController.text,
-        "trustedKey": trustedKey, // Pass the trusted key if available
       };
-      await _channel.invokeMethod('startVpn', config);
+      // This call now just triggers the permission dialog and starts the service
+      await _platform.invokeMethod('startVpn', config);
+      _addLog("Izin VPN diberikan. Service dimulai di latar belakang.");
+      // The status will now be updated by the service via the statusChannel.
+
     } on PlatformException catch (e) {
-      _addLog("Error: Failed to start VPN. ${e.message}");
+      _addLog("Error: ${e.message ?? 'Gagal memulai VPN'}");
       _status = ConnectionStatus.error;
-    }
-    notifyListeners();
-  }
-
-  Future<void> trustAndReconnect() async {
-    final keyToTrust = _untrustedHostKeyInfo?['keyString'];
-    if (keyToTrust != null) {
-      _untrustedHostKeyInfo = null; // Clear the prompt
-      _addLog("Mempercayai kunci baru dan mencoba menghubungkan kembali...");
       notifyListeners();
-      await connect(trustedKey: keyToTrust);
-    } 
+    }
   }
 
-  void clearUntrustedKeyInfo(){
+  Future<void> userTrustsHostKey() async {
+    final keyInfo = _untrustedHostKeyInfo;
+    if (keyInfo != null) {
+      _addLog("Mempercayai kunci baru dan mencoba menghubungkan kembali...");
       _untrustedHostKeyInfo = null;
       notifyListeners();
+      try {
+        await _platform.invokeMethod('userTrustsHostKey', {
+            'hostname': keyInfo['hostname'],
+            'keyAlgorithm': keyInfo['keyAlgorithm'],
+            'keyString': keyInfo['keyString'],
+        });
+      } on PlatformException catch(e) {
+        _addLog("Gagal mengirim kepercayaan: ${e.message}");
+      }
+    }
+  }
+
+  void clearUntrustedKeyInfoAndDisconnect() {
+    _untrustedHostKeyInfo = null;
+    _addLog("Verifikasi kunci ditolak oleh pengguna.");
+    disconnect();
   }
 
   Future<void> disconnect() async {
-    try {
-      await _channel.invokeMethod('stopVpn');
-      _status = ConnectionStatus.disconnected;
-      _addLog('Koneksi diputus.');
-    } on PlatformException catch (e) {
-      _addLog("Error: Failed to stop VPN. ${e.message}");
-      _status = ConnectionStatus.error;
-    }
+    _status = ConnectionStatus.disconnected;
+    _addLog('Memutus koneksi...');
     notifyListeners();
+    try {
+      await _platform.invokeMethod('stopVpn');
+    } on PlatformException catch (e) {
+      _addLog("Error: ${e.message ?? 'Gagal menghentikan VPN'}");
+      // Even if it fails, UI is already disconnected
+    }
   }
 
   void _addLog(String log, {bool fromNative = false}) {
-     final prefix = fromNative ? "" : "[UI] ";
-     final context = navigatorKey.currentContext;
-     if (context != null) {
-        _logs.insert(0, '$prefix[${TimeOfDay.now().format(context)}] $log');
-        notifyListeners();
-     }
+    final prefix = fromNative ? "" : "[UI] ";
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      final timestamp = TimeOfDay.now().format(context);
+      _logs.insert(0, '$prefix[$timestamp] $log');
+      notifyListeners();
+    }
   }
 
   @override
@@ -165,18 +246,54 @@ class ConnectionProvider with ChangeNotifier {
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  Widget build(BuildContext context) {
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        const Color primarySeedColor = Colors.cyan;
+
+        final textTheme = GoogleFonts.latoTextTheme(Theme.of(context).textTheme);
+
+        final baseTheme = ThemeData(
+            useMaterial3: true, textTheme: textTheme, brightness: Brightness.dark);
+
+        return MaterialApp(
+          title: 'SSH Tunnel',
+          navigatorKey: navigatorKey,
+          theme: baseTheme.copyWith(
+              colorScheme: ColorScheme.fromSeed(
+                  seedColor: primarySeedColor, brightness: Brightness.light)),
+          darkTheme: baseTheme.copyWith(
+              colorScheme: ColorScheme.fromSeed(
+                  seedColor: primarySeedColor, brightness: Brightness.dark)),
+          themeMode: themeProvider.themeMode,
+          home: const MainScreen(),
+          debugShowCheckedModeBanner: false,
+        );
+      },
+    );
+  }
 }
 
-class _MyAppState extends State<MyApp> {
+// --- Main Screen with Bottom Navigation ---
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+  final PageController _pageController = PageController();
+
   @override
   void initState() {
     super.initState();
-    // Listen for changes in ConnectionProvider to show the dialog
     final connectionProvider = Provider.of<ConnectionProvider>(context, listen: false);
     connectionProvider.addListener(_showHostKeyDialogIfNeeded);
   }
@@ -185,224 +302,381 @@ class _MyAppState extends State<MyApp> {
   void dispose() {
     final connectionProvider = Provider.of<ConnectionProvider>(context, listen: false);
     connectionProvider.removeListener(_showHostKeyDialogIfNeeded);
+    _pageController.dispose();
     super.dispose();
   }
 
   void _showHostKeyDialogIfNeeded() {
     final connectionProvider = Provider.of<ConnectionProvider>(context, listen: false);
     final keyInfo = connectionProvider.untrustedHostKeyInfo;
-    if (keyInfo != null && navigatorKey.currentContext != null) {
+    if (keyInfo != null && navigatorKey.currentContext != null && ModalRoute.of(navigatorKey.currentContext!)?.isCurrent == true) {
       showDialog(
-        context: navigatorKey.currentContext!,
-        barrierDismissible: false, // User must make a choice
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Verifikasi Host Key'),
-            content: SingleChildScrollView(
-              child: ListBody(
-                children: <Widget>[
-                  Text("Keaslian host '${keyInfo['hostname']}' tidak dapat dipastikan."),
-                  const SizedBox(height: 16),
-                  const Text('Sidik jari kunci SHA256 adalah:'),
-                  const SizedBox(height: 8),
-                  Text(
-                    keyInfo['fingerprint'] ?? 'Tidak tersedia',
-                    style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
-                  ),
-                   const SizedBox(height: 16),
-                   const Text('Apakah Anda ingin mempercayai kunci ini dan melanjutkan koneksi?', style: TextStyle(fontWeight: FontWeight.bold)),
-                   const SizedBox(height: 8),
-                   Text(
-                    'PERINGATAN: Jika kunci ini berubah tanpa diduga, bisa jadi ada serangan Man-in-the-Middle!',
-                    style: TextStyle(color: Colors.red.shade400, fontSize: 12),
-                   )
-                ],
-              ),
-            ),
-            actions: <Widget>[
-              TextButton(
-                child: const Text('TOLAK'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  connectionProvider.clearUntrustedKeyInfo();
-                   connectionProvider.disconnect();
-                },
-              ),
-              FilledButton(
-                child: const Text('PERCAYAI'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  connectionProvider.trustAndReconnect();
-                },
-              ),
-            ],
-          );
-        },
-      );
+          context: navigatorKey.currentContext!,
+          barrierDismissible: false,
+          builder: (context) => HostKeyDialog(keyInfo: keyInfo));
     }
+  }
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+      _pageController.animateToPage(index, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
-        const Color primarySeedColor = Colors.cyan;
-        final textTheme = GoogleFonts.latoTextTheme(Theme.of(context).textTheme);
-
-        final lightTheme = ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: primarySeedColor, brightness: Brightness.light),
-          textTheme: textTheme,
-        );
-
-        final darkTheme = ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: primarySeedColor, brightness: Brightness.dark),
-          textTheme: textTheme,
-        );
-
-        return MaterialApp(
-          title: 'SSH Tunnel',
-          navigatorKey: navigatorKey,
-          theme: lightTheme,
-          darkTheme: darkTheme,
-          themeMode: themeProvider.themeMode,
-          home: const HomePage(),
-          debugShowCheckedModeBanner: false,
-        );
+    // This is the modern and correct way to handle the back button.
+    return PopScope(
+      canPop: false, // Prevents the screen from being popped automatically.
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        // This callback is called after a pop gesture is attempted.
+        if (didPop) {
+          // If the pop was successful (which it won't be because canPop is false),
+          // do nothing.
+          return;
+        }
+        
+        // If we are not on the main connect page, navigate back to it.
+        if (_selectedIndex != 0) {
+          _onItemTapped(0);
+        } else {
+          // If we are already on the main page, exit the app.
+          SystemNavigator.pop();
+        }
       },
+      child: Scaffold(
+        body: PageView(
+          controller: _pageController,
+          onPageChanged: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
+          children: const [
+            ConnectPage(),
+            SettingsPage(),
+            LogsPage(),
+          ],
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.power_settings_new), label: 'Connect'),
+            BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+            BottomNavigationBarItem(icon: Icon(Icons.plagiarism_outlined), label: 'Logs'),
+          ],
+        ),
+      ),
     );
   }
 }
 
-// --- Home Page UI (Remains mostly the same) ---
+// --- Page 1: Connect Page ---
+class ConnectPage extends StatelessWidget {
+  const ConnectPage({super.key});
 
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
- @override
+  @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final connectionProvider = Provider.of<ConnectionProvider>(context);
+    final connectionProvider = context.watch<ConnectionProvider>();
+    final status = connectionProvider.status;
 
     return Scaffold(
       appBar: AppBar(
         title: Text('SSH Tunnel', style: GoogleFonts.oswald(fontSize: 24)),
-        actions: [
-          IconButton(
-            icon: Icon(themeProvider.themeMode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode),
-            onPressed: () => themeProvider.toggleTheme(),
-            tooltip: 'Toggle Theme',
+        actions: const [ThemeToggleButton()],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Spacer(),
+              ConnectButton(status: status),
+              const Spacer(),
+              StatusIndicator(status: status),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- Page 2: Settings Page ---
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.read<ConnectionProvider>();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Konfigurasi'),
+         actions: const [ThemeToggleButton()],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(8.0),
+        children: [
+          _buildCard(
+            context: context,
+            title: 'Server SSH',
+            icon: Icons.computer,
+            children: [
+              _buildTextField(provider.sshHostController, 'Host', Icons.dns_outlined),
+              _buildTextField(provider.sshPortController, 'Port', Icons.power_outlined, keyboardType: TextInputType.number),
+              _buildTextField(provider.sshUserContoller, 'Username', Icons.person_outline),
+              _buildTextField(provider.sshPasswordController, 'Password', Icons.password_outlined, obscureText: true),
+            ],
+          ),
+          _buildCard(
+            context: context,
+            title: 'Proxy & Obfuscation',
+            icon: Icons.shield_outlined,
+            children: [
+               _buildTextField(provider.proxyHostController, 'Proxy Host (Opsional)', Icons.http_outlined),
+              _buildTextField(provider.proxyPortController, 'Proxy Port (Opsional)', Icons.power_outlined, keyboardType: TextInputType.number),
+              _buildTextField(provider.payloadController, 'Payload (Opsional)', Icons.text_snippet_outlined, hint: 'e.g., CONNECT [host_port] HTTP/1.1'),
+              _buildTextField(provider.sniController, 'SNI / Bug Host (Opsional)', Icons.security_outlined, hint: 'e.g., m.example.com'),
+            ],
           ),
         ],
       ),
-      body: SingleChildScrollView(
+    );
+  }
+
+  Widget _buildCard({required BuildContext context, required String title, required IconData icon, required List<Widget> children}) {
+    return Card(
+      elevation: 2.0,
+      margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+      child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionTitle(context, 'Konfigurasi'),
-            const SizedBox(height: 8),
-            _buildConfigForm(context, connectionProvider),
-            const SizedBox(height: 24),
-            _buildConnectButton(context, connectionProvider),
-            const SizedBox(height: 24),
-            _buildSectionTitle(context, 'Log Status'),
-            const SizedBox(height: 8),
-            _buildLogPanel(context, connectionProvider),
+            Row(
+              children: [
+                Icon(icon, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 12),
+                Text(title, style: Theme.of(context).textTheme.titleLarge),
+              ],
+            ),
+            const Divider(height: 24),
+            ...children,
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionTitle(BuildContext context, String title) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-    );
-  }
-  
-  Widget _buildConfigForm(BuildContext context, ConnectionProvider provider) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildTextField(controller: provider.sshHostController, label: 'SSH Host'),
-        _buildTextField(controller: provider.sshPortController, label: 'SSH Port', keyboardType: TextInputType.number),
-        _buildTextField(controller: provider.sshUserContoller, label: 'SSH User'),
-        _buildTextField(controller: provider.sshPasswordController, label: 'SSH Password', obscureText: true),
-        const SizedBox(height: 16),
-        _buildTextField(controller: provider.payloadController, label: 'Payload (Opsional)'),
-        _buildTextField(controller: provider.sniController, label: 'SNI / Bug Host (Opsional)'),
-        const SizedBox(height: 16),
-        _buildTextField(controller: provider.proxyHostController, label: 'Proxy Host (Opsional)'),
-        _buildTextField(controller: provider.proxyPortController, label: 'Proxy Port (Opsional)', keyboardType: TextInputType.number),
-      ],
-    );
-  }
-
-  Widget _buildTextField({required TextEditingController controller, required String label, bool obscureText = false, TextInputType? keyboardType}) {
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {bool obscureText = false, TextInputType? keyboardType, String? hint}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: TextFormField(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: TextField(
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          hintText: hint,
+          prefixIcon: Icon(icon),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
       ),
     );
   }
+}
 
-  Widget _buildConnectButton(BuildContext context, ConnectionProvider provider) {
-    bool isConnected = provider.status == ConnectionStatus.connected;
-    bool isConnecting = provider.status == ConnectionStatus.connecting;
+// --- Page 3: Logs Page ---
 
-    Color buttonColor = isConnected ? Colors.green : (isConnecting ? Colors.orange : Theme.of(context).colorScheme.primary);
-    String buttonText = isConnected ? 'Disconnect' : (isConnecting ? 'Connecting...' : 'Connect');
+class LogsPage extends StatelessWidget {
+  const LogsPage({super.key});
 
-    return ElevatedButton(
-      onPressed: isConnecting ? null : () {
-        isConnected ? provider.disconnect() : provider.connect();
-      },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: buttonColor,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  @override
+  Widget build(BuildContext context) {
+    final logs = context.watch<ConnectionProvider>().logs;
+    return Scaffold(
+       appBar: AppBar(
+        title: const Text('Logs'),
+         actions: const [ThemeToggleButton()],
       ),
-      child: isConnecting
-          ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
-          : Text(buttonText),
-    );
-  }
-
-  Widget _buildLogPanel(BuildContext context, ConnectionProvider provider) {
-    return Container(
-      height: 200,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: ListView.builder(
+      body: ListView.builder(
         padding: const EdgeInsets.all(8),
         reverse: true,
-        itemCount: provider.logs.length,
+        itemCount: logs.length,
         itemBuilder: (context, index) {
+          final log = logs[index];
+          Color color = Colors.grey.shade500;
+          if(log.contains("Error:") || log.contains("failed") || log.contains("!!!")) color = Colors.red.shade400;
+          if(log.contains("Success!")) color = Colors.green.shade400;
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2.0),
-            child: Text(
-              provider.logs[index],
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 4.0),
+            child: Text(log, style: GoogleFonts.firaCode(fontSize: 12, color: color)),
           );
         },
       ),
+    );
+  }
+}
+
+// --- Reusable Widgets ---
+
+class ThemeToggleButton extends StatelessWidget {
+  const ThemeToggleButton({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    return IconButton(
+      icon: Icon(themeProvider.themeMode == ThemeMode.dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+      onPressed: () => themeProvider.toggleTheme(),
+      tooltip: 'Toggle Theme',
+    );
+  }
+}
+
+class ConnectButton extends StatelessWidget {
+  final ConnectionStatus status;
+  const ConnectButton({super.key, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.read<ConnectionProvider>();
+    
+    // The button is now controlled by whether the VPN service is supposed to be active.
+    // Disconnected means service is off. Anything else means service is on (or trying to be).
+    bool isServiceActive = status != ConnectionStatus.disconnected;
+    bool isConnecting = status == ConnectionStatus.connecting;
+
+    VoidCallback? onPressed = isConnecting ? null : () {
+       isServiceActive ? provider.disconnect() : provider.connect();
+    };
+    
+    Color buttonColor = isServiceActive ? Colors.red.shade700 : Colors.green.shade700;
+
+    return GestureDetector(
+      onTap: onPressed,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        width: 200,
+        height: 200,
+        decoration: BoxDecoration(
+          color: buttonColor,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: buttonColor.withAlpha(102), // Correct way to set opacity
+              blurRadius: 15,
+              spreadRadius: 5,
+              offset: const Offset(0, 5),
+            )
+          ]
+        ),
+        child: Center(
+          child: isConnecting
+              ? const SizedBox(height: 50, width: 50, child: CircularProgressIndicator(strokeWidth: 4, color: Colors.white))
+              : Icon(
+                  isServiceActive ? Icons.stop : Icons.power_settings_new, 
+                  color: Colors.white, 
+                  size: 80
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class StatusIndicator extends StatelessWidget {
+  final ConnectionStatus status;
+  const StatusIndicator({super.key, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    String text;
+    Color color;
+    IconData icon;
+
+    switch (status) {
+      case ConnectionStatus.connected:
+        text = 'TERHUBUNG';
+        color = Colors.green.shade400;
+        icon = Icons.gpp_good_outlined;
+        break;
+      case ConnectionStatus.connecting:
+        text = 'MENGHUBUNGKAN...';
+        color = Colors.orange.shade400;
+        icon = Icons.hourglass_top_outlined;
+        break;
+      case ConnectionStatus.error:
+        text = 'GAGAL TERHUBUNG'; // More specific error text
+        color = Colors.red.shade400;
+        icon = Icons.error_outline;
+        break;
+      case ConnectionStatus.disconnected:
+        text = 'TERPUTUS';
+        color = Colors.grey.shade500;
+        icon = Icons.power_off_outlined;
+        break;
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Text(text, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: color, fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+}
+
+class HostKeyDialog extends StatelessWidget {
+  final Map<String, String> keyInfo;
+  const HostKeyDialog({super.key, required this.keyInfo});
+
+  @override
+  Widget build(BuildContext context) {
+    final connectionProvider = context.read<ConnectionProvider>();
+    return AlertDialog(
+      title: const Text('Verifikasi Host Key'),
+      content: SingleChildScrollView(
+        child: ListBody(
+          children: <Widget>[
+            Text("Keaslian host '${keyInfo['hostname']}' tidak dapat dipastikan."),
+            const SizedBox(height: 16),
+            const Text('Sidik jari kunci adalah:'),
+            const SizedBox(height: 8),
+            Text(
+              keyInfo['fingerprint'] ?? 'Tidak tersedia',
+              style: GoogleFonts.firaCode(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text('Apakah Anda ingin mempercayai kunci ini?', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          child: const Text('TOLAK'),
+          onPressed: () {
+            Navigator.of(context).pop();
+            connectionProvider.clearUntrustedKeyInfoAndDisconnect();
+          },
+        ),
+        FilledButton(
+          child: const Text('PERCAYAI'),
+          onPressed: () {
+            Navigator.of(context).pop();
+            connectionProvider.userTrustsHostKey();
+          },
+        ),
+      ],
     );
   }
 }
