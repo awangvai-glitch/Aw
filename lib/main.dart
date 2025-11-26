@@ -1,5 +1,6 @@
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,9 +8,13 @@ import 'package:provider/provider.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'settings_page.dart'; // Impor halaman pengaturan
+import 'settings_page.dart';
+import 'notification_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService().init();
+
   runApp(
     MultiProvider(
       providers: [
@@ -57,9 +62,9 @@ class SshStateProvider with ChangeNotifier {
 
   Future<void> toggleSshConnection() async {
     if (state == SshConnectionState.connected || state == SshConnectionState.connecting) {
-      _disconnect();
+      await _disconnect();
     } else {
-      _connect();
+      await _connect();
     }
   }
 
@@ -95,13 +100,25 @@ class SshStateProvider with ChangeNotifier {
 
       _state = SshConnectionState.connected;
       _startTimer();
+      await NotificationService().showSshConnectedNotification(connectionTimeString);
     } catch (e) {
-      _handleError('Error: ${e.toString()}');
+      if (e.toString().contains('SSHAuthFail')) {
+        _handleError('Authentication Failed. Please check your username and password in Settings.');
+      } else if (e is SocketException) {
+        if (e.osError != null && e.osError!.message.contains('Failed host lookup')) {
+          _handleError('Hostname not found. Please check the host address in Settings.');
+        } else {
+          _handleError(
+              'Connection Failed. Please check:\n- Host & Port are correct.\n- Your device has an internet connection.\n- The SSH server is running and accessible.');
+        }
+      } else {
+        _handleError('An unexpected error occurred: ${e.toString()}');
+      }
     }
     notifyListeners();
   }
 
-  void _disconnect() {
+  Future<void> _disconnect() async {
     _state = SshConnectionState.disconnecting;
     notifyListeners();
 
@@ -109,13 +126,16 @@ class SshStateProvider with ChangeNotifier {
     _client = null;
     _stopTimer();
     _state = SshConnectionState.disconnected;
+    await NotificationService().cancelSshNotification();
     notifyListeners();
   }
 
+  // CORRECTED: Made synchronous to satisfy the analyzer.
   void _handleError(String message) {
     _state = SshConnectionState.error;
     _errorMessage = message;
     _stopTimer();
+    NotificationService().cancelSshNotification(); // Fire and forget.
   }
 
   void _startTimer() {
@@ -123,6 +143,9 @@ class SshStateProvider with ChangeNotifier {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _connectionTime++;
+      if (state == SshConnectionState.connected) {
+        NotificationService().showSshConnectedNotification(connectionTimeString);
+      }
       notifyListeners();
     });
   }
