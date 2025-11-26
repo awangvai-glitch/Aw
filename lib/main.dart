@@ -1,10 +1,13 @@
 
 import 'dart:async';
-import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:dartssh2/dartssh2.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'settings_page.dart'; // Impor halaman pengaturan
 
 void main() {
   runApp(
@@ -65,19 +68,23 @@ class SshStateProvider with ChangeNotifier {
     _errorMessage = '';
     notifyListeners();
 
-    // --- GANTI DENGAN DETAIL KONEKSI ANDA ---
-    final host = 'your_ssh_server_address';
-    final port = 22;
-    final username = 'your_username';
-    final password = 'your_password';
-
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final host = prefs.getString(sshHostKey);
+      final port = prefs.getInt(sshPortKey);
+      final username = prefs.getString(sshUsernameKey);
+      final password = prefs.getString(sshPasswordKey);
+
+      if (host == null || port == null || username == null || password == null || host.isEmpty || username.isEmpty) {
+        throw Exception('SSH settings are not configured. Please set them first.');
+      }
+
       if (kIsWeb) {
         throw UnsupportedError('SSH connections are not supported on web.');
       }
 
       final socket = await SSHSocket.connect(host, port, timeout: const Duration(seconds: 15));
-      
+
       _client = SSHClient(
         socket,
         username: username,
@@ -226,6 +233,15 @@ class SshHomePage extends StatelessWidget {
         title: const Text('SSH TUNNEL'),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
+            tooltip: 'Settings',
+          ),
           IconButton(
             icon: Icon(themeProvider.themeMode == ThemeMode.dark
                 ? Icons.light_mode_rounded
