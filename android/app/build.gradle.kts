@@ -6,6 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.myapp"
+    // Mengubah compileSdk ke versi 36 untuk mengatasi error build
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.myapp"
-        minSdk = flutter.minSdkVersion
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -33,6 +34,15 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    packagingOptions {
+        pickFirsts += listOf(
+            "lib/x86/libopenvpn.so",
+            "lib/x86_64/libopenvpn.so",
+            "lib/armeabi-v7a/libopenvpn.so",
+            "lib/arm64-v8a/libopenvpn.so"
+        )
+    }
 }
 
 flutter {
@@ -40,6 +50,5 @@ flutter {
 }
 
 dependencies {
-    // Updated to the required version
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

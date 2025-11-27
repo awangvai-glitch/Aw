@@ -1,54 +1,48 @@
-# Proyek Klien SSH Flutter
+# Proyek Aplikasi VPN dengan Flutter
 
 ## Gambaran Umum
 
-Aplikasi ini adalah klien SSH lintas platform yang dibuat dengan Flutter. Awalnya dirancang untuk mendelegasikan logika proksi ke alat eksternal, proyek ini sekarang beralih untuk **mengintegrasikan fungsionalitas proksi secara langsung** untuk kemudahan penggunaan.
+Proyek ini bertujuan untuk membangun aplikasi VPN fungsional untuk Android menggunakan Flutter. Tujuan utamanya adalah menyediakan alat yang mudah digunakan bagi pengguna untuk mengamankan dan mengalihkan seluruh lalu lintas internet perangkat mereka melalui server. Aplikasi ini akan menampilkan antarmuka yang sederhana dan intuitif untuk mengelola koneksi VPN.
 
-Tujuan utamanya adalah menyediakan klien SSH mandiri yang dapat membuat terowongan koneksi melalui **proksi HTTP**, memungkinkan pengguna untuk terhubung ke server dengan aman dari belakang jaringan yang terbatas.
+## Fitur Utama
 
-## Fitur yang Diterapkan
-
-*   **Manajemen Koneksi:**
-    *   Menyimpan detail koneksi terakhir (host, port, nama pengguna) menggunakan `shared_preferences`.
-    *   Memuat detail ini secara otomatis saat aplikasi dimulai.
-*   **Klien SSH Inti:**
-    *   Terhubung ke server SSH menggunakan paket `dartssh2`.
-    *   Mendukung autentikasi berbasis kata sandi.
-    *   Menampilkan output dari server dan memungkinkan pengiriman perintah.
-*   **Desain & UX:**
-    *   Tema terang dan gelap dengan `provider`.
-    *   Tipografi modern menggunakan `google_fonts`.
+*   **Koneksi VPN Sistem-Luas:** Mengalihkan semua lalu lintas internet dari perangkat.
+*   **Antarmuka Sederhana:** UI minimalis dengan tombol "Connect/Disconnect" yang jelas dan tampilan status koneksi.
+*   **Manajemen Status Koneksi:** Memberikan umpan balik visual yang jelas tentang status VPN (Disconnected, Connecting, Connected, Disconnecting).
+*   **Izin Asli (Native Permission):** Menangani permintaan izin VPN dari sistem operasi Android secara benar.
 
 ## Arsitektur & Pustaka
 
 *   **Manajemen State:** `provider`
-*   **Konektivitas SSH:** `dartssh2`
-*   **Penyimpanan Lokal:** `shared_preferences`
-*   **Gaya & Font:** `google_fonts`
+*   **Manajemen VPN (Native):** `flutter_vpn` (paket yang dipilih setelah evaluasi)
+*   **Penyimpanan Lokal (Direncanakan):** `shared_preferences` untuk menyimpan detail koneksi.
 
-## Rencana Saat Ini: Integrasi "SSH over HTTP Proxy"
+---
 
-**Tujuan:** Mengizinkan pengguna untuk terhubung ke server SSH melalui proksi HTTP langsung dari dalam aplikasi.
+## Rencana Implementasi Saat Ini: Integrasi `flutter_vpn`
 
-**Langkah-langkah Rinci:**
+**Tujuan:** Mengganti logika simulasi dengan implementasi VPN fungsional menggunakan paket `flutter_vpn`.
 
-1.  **Perbarui UI (`lib/main.dart`):**
-    *   Tambahkan `TextEditingController` untuk host dan port proksi.
-    *   Tambahkan widget `TextField` di antarmuka pengguna agar pengguna dapat memasukkan alamat dan port proksi HTTP.
+**Histori Keputusan (Penting):**
+Upaya awal menggunakan paket `flutter_vpn_service` gagal. Paket tersebut tampaknya ditinggalkan atau tidak stabil (hanya ~35 unduhan), yang menyebabkan serangkaian error API yang tidak dapat diselesaikan. Sebagai respons, kami telah **menghapus `flutter_vpn_service`** dan beralih ke paket **`flutter_vpn`** yang lebih matang dan banyak digunakan. Proyek sekarang berada dalam keadaan bersih dan siap untuk integrasi baru.
 
-2.  **Modifikasi Logika Koneksi (`_connect` method):**
-    *   Buat fungsi baru, misalnya `_createProxySocket`, yang akan menangani logika koneksi proksi.
-    *   Fungsi ini akan:
-        *   Membuka koneksi `Socket` ke proksi HTTP yang ditentukan.
-        *   Mengirim permintaan `CONNECT <ssh_host>:<ssh_port> HTTP/1.1`.
-        *   Memvalidasi respons dari proksi untuk memastikan koneksi `200 OK` diterima.
-        *   Mengembalikan `Socket` yang sudah ditunnel jika berhasil.
-    *   Ubah pemanggilan `SSHClient` untuk menggunakan `Socket` yang dibuat oleh proksi, bukan koneksi langsung.
+**Langkah-langkah Rinci Berikutnya:**
 
-3.  **Manajemen State & Error:**
-    *   Simpan detail proksi menggunakan `shared_preferences` seperti detail koneksi lainnya.
-    *   Tangani potensi eror selama koneksi proksi (misalnya, proksi tidak terjangkau, autentikasi gagal, dll.) dan tampilkan pesan yang jelas kepada pengguna.
+1.  **Studi Paket `flutter_vpn`:**
+    *   Mencari dokumentasi dan contoh resmi untuk `flutter_vpn`.
+    *   Memahami API utamanya, termasuk metode untuk `connect`, `disconnect`, dan cara mendengarkan perubahan status.
 
-4.  **Verifikasi & Pembersihan:**
-    *   Uji fungsionalitas baru secara menyeluruh.
-    *   Hapus referensi atau logika yang terkait dengan ketergantungan eksternal (`sing-box`) karena tidak lagi relevan.
+2.  **Konfigurasi Proyek Android (jika diperlukan):**
+    *   Memeriksa dokumentasi `flutter_vpn` untuk setiap konfigurasi `AndroidManifest.xml` atau `build.gradle` yang diperlukan. Umumnya, ini melibatkan penambahan izin `android.permission.BIND_VPN_SERVICE`.
+
+3.  **Implementasi Logika di `VpnProvider` (`lib/main.dart`):**
+    *   Mengimpor `package:flutter_vpn/flutter_vpn.dart`.
+    *   Mengganti metode `connect()` dan `disconnect()` yang disimulasikan dengan panggilan API `flutter_vpn` yang sebenarnya.
+    *   Mengatur listener untuk perubahan status dari `flutter_vpn` dan memperbarui state `VpnProvider` sesuai dengan itu.
+    *   Menangani logika untuk meminta izin VPN dari pengguna saat pertama kali koneksi.
+
+4.  **Pengujian & Iterasi:**
+    *   Menjalankan aplikasi di perangkat Android fisik (emulator mungkin tidak mendukung VpnService).
+    *   Memverifikasi bahwa tombol "Connect" berhasil meminta izin dan membuat koneksi VPN.
+    *   Memverifikasi bahwa tombol "Disconnect" menghentikan koneksi.
+    *   Memeriksa log untuk setiap error selama siklus hidup koneksi.
