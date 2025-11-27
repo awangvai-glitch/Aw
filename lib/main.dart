@@ -59,7 +59,6 @@ class VpnHomePage extends StatelessWidget {
       ),
       body: Consumer<VpnProvider>(
         builder: (context, vpnProvider, child) {
-          // Tampilkan loading indicator saat pertama kali memuat
           if (vpnProvider.isLoading && vpnProvider.servers.isEmpty) {
             return const Center(
               child: Column(
@@ -73,7 +72,6 @@ class VpnHomePage extends StatelessWidget {
             );
           }
 
-          // Tampilkan pesan error jika gagal memuat
           if (vpnProvider.errorMessage != null && vpnProvider.servers.isEmpty) {
             return Center(
               child: Column(
@@ -97,15 +95,16 @@ class VpnHomePage extends StatelessWidget {
             );
           }
 
-          // Tampilan utama setelah server berhasil dimuat
           return buildMainContent(context, vpnProvider);
         },
       ),
     );
   }
 
-  // Widget untuk konten utama dipisahkan agar lebih rapi
   Widget buildMainContent(BuildContext context, VpnProvider vpnProvider) {
+    final bool isConnecting = vpnProvider.isConnecting || vpnProvider.isDisconnecting;
+    final Color buttonColor = vpnProvider.isConnected ? Colors.red.shade700 : Colors.green.shade700;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -114,7 +113,6 @@ class VpnHomePage extends StatelessWidget {
             vpnProvider.currentStatus,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white),
           ),
-          // Tampilkan nama server jika ada yang terpilih, jika tidak tampilkan pesan
           Padding(
             padding: const EdgeInsets.only(top: 8.0, bottom: 16.0),
             child: Text(
@@ -136,33 +134,36 @@ class VpnHomePage extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 20),
-          InkWell(
-            onTap: () {
-              if (vpnProvider.isConnected) {
-                vpnProvider.disconnect();
-              } else {
-                vpnProvider.connect();
-              }
-            },
-            borderRadius: BorderRadius.circular(100),
-            child: Container(
-              width: 180,
-              height: 180,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: vpnProvider.isConnected ? Colors.red.shade700 : Colors.green.shade700,
-                boxShadow: [
-                  BoxShadow(
-                    color: vpnProvider.isConnected ? Colors.red.withAlpha(150) : Colors.green.withAlpha(150),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                  )
-                ]
-              ),
-              child: const Icon(
-                Icons.power_settings_new,
-                size: 80,
-                color: Colors.white,
+          Opacity(
+            opacity: isConnecting ? 0.5 : 1.0,
+            child: InkWell(
+              onTap: isConnecting ? null : () {
+                if (vpnProvider.isConnected) {
+                  vpnProvider.disconnect();
+                } else {
+                  vpnProvider.connect();
+                }
+              },
+              borderRadius: BorderRadius.circular(100),
+              child: Container(
+                width: 180,
+                height: 180,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: buttonColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: buttonColor.withAlpha(150),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    )
+                  ]
+                ),
+                child: const Icon(
+                  Icons.power_settings_new,
+                  size: 80,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),

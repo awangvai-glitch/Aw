@@ -3,7 +3,10 @@
     <!-- Permissions for internet and VPN -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
+    <!-- BIND_VPN_SERVICE permission is crucial for VPN services -->
+    <uses-permission
+        android:name="android.permission.BIND_VPN_SERVICE"
+        android:protectionLevel="signature" />
 
 
     <!-- Permissions required by flutter_local_notifications for scheduled notifications -->
@@ -34,6 +37,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- Declaration of the VPN Service required by openvpn_flutter -->
+        <service
+            android:name="com.jhomlala.openvpn.OpenVPNService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+        <!-- End of service declaration -->
 
         <!-- flutter_local_notifications receiver -->
         <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />

@@ -21,6 +21,9 @@ class VpnProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String get currentStatus => stage?.toString().split('.').last.replaceAll('_', ' ').toUpperCase() ?? 'DISCONNECTED';
   bool get isConnected => stage == VPNStage.connected;
+  bool get isConnecting => stage == VPNStage.connecting;
+  bool get isDisconnecting => stage == VPNStage.disconnecting;
+
 
   VpnProvider() {
     // Inisialisasi engine OpenVPN
@@ -98,7 +101,10 @@ class VpnProvider with ChangeNotifier {
       developer.log("Tidak ada server VPN yang dipilih.");
       return;
     }
-    if (isConnected) return; // Jangan coba konek jika sudah konek
+    if (isConnected || isConnecting) return; // Jangan coba konek jika sudah konek atau sedang konek
+
+    stage = VPNStage.connecting;
+    notifyListeners();
 
     engine.connect(
       _selectedServer!.ovpnConfig,
@@ -110,6 +116,11 @@ class VpnProvider with ChangeNotifier {
   }
 
   void disconnect() {
+    if (!isConnected && !isConnecting) return;
+    
+    stage = VPNStage.disconnecting;
+    notifyListeners();
+
     engine.disconnect();
   }
 }
