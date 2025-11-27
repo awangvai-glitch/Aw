@@ -1,126 +1,99 @@
+
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'dart:developer' as developer;
 import 'package:openvpn_flutter/openvpn_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'vpn_server.dart';
 
 class VpnProvider with ChangeNotifier {
-  late OpenVPN engine;
-  VpnStatus? status;
-  VPNStage? stage;
+  final SupabaseClient _supabase;
+  late final OpenVPN _openvpn;
+  VpnStatus? _status;
+  VPNStage? _stage;
+  Timer? _timer;
 
   List<VpnServer> _servers = [];
   VpnServer? _selectedServer;
   bool _isLoading = false;
-  String? _errorMessage;
 
-  // Getter untuk diakses UI
-  List<VpnServer> get servers => _servers;
-  VpnServer? get selectedServer => _selectedServer;
-  bool get isLoading => _isLoading;
-  String? get errorMessage => _errorMessage;
-  String get currentStatus => stage?.toString().split('.').last.replaceAll('_', ' ').toUpperCase() ?? 'DISCONNECTED';
-  bool get isConnected => stage == VPNStage.connected;
-  bool get isConnecting => stage == VPNStage.connecting;
-  bool get isDisconnecting => stage == VPNStage.disconnecting;
-
-
-  VpnProvider() {
-    // Inisialisasi engine OpenVPN
-    engine = OpenVPN(
-      onVpnStatusChanged: (VpnStatus? vpnStatus) {
-        status = vpnStatus;
+  VpnProvider(this._supabase) {
+    _openvpn = OpenVPN(
+      onVpnStatusChanged: (VpnStatus status) {
+        _status = status;
+        print('VPN Status changed: $status');
         notifyListeners();
       },
-      onVpnStageChanged: (VPNStage? vpnStage, String rawStage) {
-        stage = vpnStage;
+      onVpnStageChanged: (VPNStage stage, String raw) {
+        _stage = stage;
+        print('VPN Stage changed: $stage, Raw: $raw');
         notifyListeners();
       },
     );
-
-    engine.initialize(
-      groupIdentifier: 'group.com.yourdomain.yourapp',
-      providerBundleIdentifier: 'com.yourdomain.yourapp.networkextension',
-      localizedDescription: 'MyVPN',
-      lastStage: (vpnStage) {
-        stage = vpnStage;
-        notifyListeners();
-      },
-      lastStatus: (vpnStatus) {
-        status = vpnStatus;
-        notifyListeners();
-      }
-    );
-
-    // Ambil data server dari Supabase saat provider dibuat
-    fetchServers();
+    fetchVpnServers();
   }
 
-  Future<void> fetchServers() async {
+  List<VpnServer> get servers => _servers;
+  VpnServer? get selectedServer => _selectedServer;
+  VpnStatus? get vpnStatus => _status;
+  VPNStage? get vpnStage => _stage;
+  bool get isLoading => _isLoading;
+
+  bool get isConnecting => _stage != null && _stage != VPNStage.disconnected && _stage != VPNStage.error;
+
+  Future<void> fetchVpnServers() async {
     _isLoading = true;
-    _errorMessage = null;
     notifyListeners();
 
+    print("Fetching VPN servers from Supabase...");
+
     try {
-      // Mengambil data dari tabel 'servers' di Supabase
-      final response = await Supabase.instance.client.from('servers').select();
+      final response = await _supabase.from('vpn_servers').select();
+      print("Supabase response: $response");
 
-      // Parsing data dari response
-      _servers = response.map<VpnServer>((data) => VpnServer(
-        name: data['name'],
-        ovpnConfig: data['ovpnConfig'],
-        username: data['username'],
-        password: data['password'],
-      )).toList();
-
-      // Jika ada server, pilih yang pertama sebagai default
-      if (_servers.isNotEmpty) {
-        _selectedServer = _servers.first;
+      if (response != null) {
+        _servers = response.map<VpnServer>((json) => VpnServer.fromJson(json)).toList();
+        print("Successfully fetched ${_servers.length} servers.");
+      } else {
+        print("No data received from Supabase.");
       }
 
-      developer.log("${_servers.length} server berhasil diambil dari Supabase.");
-
-    } catch (e) {
-      developer.log("Error saat mengambil server dari Supabase: $e");
-      _errorMessage = "Gagal memuat daftar server. Periksa koneksi internet Anda.";
+    } catch (e, s) {
+      print('Error fetching VPN servers: $e');
+      print('Stacktrace: $s');
+      _servers = [];
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  void setSelectedServer(VpnServer server) {
-    if (isConnected) return; // Jangan ganti server saat terhubung
+
+  void selectServer(VpnServer server) {
     _selectedServer = server;
-    developer.log("Server dipilih: ${server.name}");
     notifyListeners();
   }
 
   void connect() {
-    if (_selectedServer == null) {
-      developer.log("Tidak ada server VPN yang dipilih.");
-      return;
-    }
-    if (isConnected || isConnecting) return; // Jangan coba konek jika sudah konek atau sedang konek
-
-    stage = VPNStage.connecting;
+    if (_selectedServer == null || isConnecting) return;
+    _stage = VPNStage.connecting;
     notifyListeners();
 
-    engine.connect(
-      _selectedServer!.ovpnConfig,
-      _selectedServer!.name,
+    _openvpn.connect(
+      _selectedServer!.configFile,
+      _selectedServer!.country,
       username: _selectedServer!.username,
       password: _selectedServer!.password,
-      certIsRequired: false
     );
   }
 
   void disconnect() {
-    if (!isConnected && !isConnecting) return;
-    
-    stage = VPNStage.disconnecting;
-    notifyListeners();
+    _openvpn.disconnect();
+  }
 
-    engine.disconnect();
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 }
