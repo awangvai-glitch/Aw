@@ -356,7 +356,6 @@ class _MainScreenState extends State<MainScreen> {
           children: const [
             ConnectPage(),
             SettingsPage(),
-            LogsPage(),
           ],
         ),
         bottomNavigationBar: BottomNavigationBar(
@@ -366,7 +365,6 @@ class _MainScreenState extends State<MainScreen> {
           items: const [
             BottomNavigationBarItem(icon: Icon(Icons.power_settings_new), label: 'Connect'),
             BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-            BottomNavigationBarItem(icon: Icon(Icons.plagiarism_outlined), label: 'Logs'),
           ],
         ),
       ),
@@ -388,19 +386,19 @@ class ConnectPage extends StatelessWidget {
         title: Text('SSH Tunnel', style: GoogleFonts.oswald(fontSize: 24)),
         actions: const [ThemeToggleButton()],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Spacer(),
-              ConnectButton(status: status),
-              const Spacer(),
-              StatusIndicator(status: status),
-              const Spacer(),
-            ],
-          ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            const Spacer(),
+            ConnectButton(status: status),
+            const SizedBox(height: 24),
+            StatusIndicator(status: status),
+            const SizedBox(height: 24),
+            const Expanded(
+              child: LogsView(),
+            ),
+          ],
         ),
       ),
     );
@@ -494,21 +492,23 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-// --- Page 3: Logs Page ---
-
-class LogsPage extends StatelessWidget {
-  const LogsPage({super.key});
+// --- New Logs View Widget ---
+class LogsView extends StatelessWidget {
+  const LogsView({super.key});
 
   @override
   Widget build(BuildContext context) {
     final logs = context.watch<ConnectionProvider>().logs;
-    return Scaffold(
-       appBar: AppBar(
-        title: const Text('Logs'),
-         actions: const [ThemeToggleButton()],
+    return Container(
+      padding: const EdgeInsets.all(8.0),
+      margin: const EdgeInsets.only(top: 16.0),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withAlpha(128),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(8),
+      child: ListView.builder(
+        padding: EdgeInsets.zero,
         reverse: true,
         itemCount: logs.length,
         itemBuilder: (context, index) {
@@ -525,6 +525,7 @@ class LogsPage extends StatelessWidget {
     );
   }
 }
+
 
 // --- Reusable Widgets ---
 
