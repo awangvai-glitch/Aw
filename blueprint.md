@@ -1,28 +1,54 @@
+# Proyek Klien SSH Flutter
 
-# Project Blueprint: SSH Tunneling App
+## Gambaran Umum
 
-## Overview
+Aplikasi ini adalah klien SSH lintas platform yang dibuat dengan Flutter. Awalnya dirancang untuk mendelegasikan logika proksi ke alat eksternal, proyek ini sekarang beralih untuk **mengintegrasikan fungsionalitas proksi secara langsung** untuk kemudahan penggunaan.
 
-This document outlines the plan for creating a simple SSH tunneling application using Flutter. The app will provide a modern, intuitive interface for connecting and disconnecting from an SSH server.
+Tujuan utamanya adalah menyediakan klien SSH mandiri yang dapat membuat terowongan koneksi melalui **proksi HTTP**, memungkinkan pengguna untuk terhubung ke server dengan aman dari belakang jaringan yang terbatas.
 
-## Features
+## Fitur yang Diterapkan
 
-*   **SSH Connection:** Users can connect to and disconnect from an SSH server using username/password or a private key.
-*   **Modern UI:** A beautiful and intuitive user interface that follows modern design guidelines, including a theme toggle for light/dark mode.
-*   **Connection Status:** Clear visual indicators for connection status (disconnected, connecting, connected, error) and connection duration.
-*   **Cross-Platform:** The app will be built with Flutter, allowing it to run on both Android and iOS.
+*   **Manajemen Koneksi:**
+    *   Menyimpan detail koneksi terakhir (host, port, nama pengguna) menggunakan `shared_preferences`.
+    *   Memuat detail ini secara otomatis saat aplikasi dimulai.
+*   **Klien SSH Inti:**
+    *   Terhubung ke server SSH menggunakan paket `dartssh2`.
+    *   Mendukung autentikasi berbasis kata sandi.
+    *   Menampilkan output dari server dan memungkinkan pengiriman perintah.
+*   **Desain & UX:**
+    *   Tema terang dan gelap dengan `provider`.
+    *   Tipografi modern menggunakan `google_fonts`.
 
-## Plan
+## Arsitektur & Pustaka
 
-### Phase 1: UI & VPN (Completed & Deprecated)
+*   **Manajemen State:** `provider`
+*   **Konektivitas SSH:** `dartssh2`
+*   **Penyimpanan Lokal:** `shared_preferences`
+*   **Gaya & Font:** `google_fonts`
 
-*   Initial setup with `flutter_vpn`.
-*   UI redesign with provider and modern components.
+## Rencana Saat Ini: Integrasi "SSH over HTTP Proxy"
 
-### Phase 2: Pivot to SSH (Current)
+**Tujuan:** Mengizinkan pengguna untuk terhubung ke server SSH melalui proksi HTTP langsung dari dalam aplikasi.
 
-1.  **Update Dependencies**: Remove `flutter_vpn` and add the `dartssh2` package for handling SSH connections.
-2.  **Refactor State Management**: Create a new `SshStateProvider` to manage the logic and state of the SSH connection.
-3.  **Implement SSH Logic**: Use `dartssh2` to establish and terminate SSH connections. The logic will handle authentication via password or private key (placeholders will be provided).
-4.  **Adapt UI**: The existing modern UI will be adapted to work with the new `SshStateProvider`. The connection button and status indicators will now reflect the SSH connection state.
-5.  **Error Handling**: Implement robust error handling for common SSH connection issues (e.g., authentication failed, host not found).
+**Langkah-langkah Rinci:**
+
+1.  **Perbarui UI (`lib/main.dart`):**
+    *   Tambahkan `TextEditingController` untuk host dan port proksi.
+    *   Tambahkan widget `TextField` di antarmuka pengguna agar pengguna dapat memasukkan alamat dan port proksi HTTP.
+
+2.  **Modifikasi Logika Koneksi (`_connect` method):**
+    *   Buat fungsi baru, misalnya `_createProxySocket`, yang akan menangani logika koneksi proksi.
+    *   Fungsi ini akan:
+        *   Membuka koneksi `Socket` ke proksi HTTP yang ditentukan.
+        *   Mengirim permintaan `CONNECT <ssh_host>:<ssh_port> HTTP/1.1`.
+        *   Memvalidasi respons dari proksi untuk memastikan koneksi `200 OK` diterima.
+        *   Mengembalikan `Socket` yang sudah ditunnel jika berhasil.
+    *   Ubah pemanggilan `SSHClient` untuk menggunakan `Socket` yang dibuat oleh proksi, bukan koneksi langsung.
+
+3.  **Manajemen State & Error:**
+    *   Simpan detail proksi menggunakan `shared_preferences` seperti detail koneksi lainnya.
+    *   Tangani potensi eror selama koneksi proksi (misalnya, proksi tidak terjangkau, autentikasi gagal, dll.) dan tampilkan pesan yang jelas kepada pengguna.
+
+4.  **Verifikasi & Pembersihan:**
+    *   Uji fungsionalitas baru secara menyeluruh.
+    *   Hapus referensi atau logika yang terkait dengan ketergantungan eksternal (`sing-box`) karena tidak lagi relevan.
