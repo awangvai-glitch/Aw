@@ -4,11 +4,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'vpn_provider.dart';
 import 'vpn_server.dart';
+import 'widget/connect_button.dart'; // Import the new ConnectButton
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(
-    // Corrected Supabase URL and anonKey provided by the user.
     url: 'https://gmndebizslctonvqvtnf.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtbmRlYml6c2xjdG9udnF2dG5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MzI4ODQsImV4cCI6MjA3OTIwODg4NH0.HdpFu0F1k2bwsY1TWImuHWBVw9eIrVweJWi0g30wCcI',
   );
@@ -26,6 +26,7 @@ class MyApp extends StatelessWidget {
         title: 'VPN App',
         theme: ThemeData(
           primarySwatch: Colors.blue,
+          visualDensity: VisualDensity.adaptivePlatformDensity, // Added for better spacing
         ),
         home: const VpnHomePage(),
       ),
@@ -38,80 +39,95 @@ class VpnHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final vpnProvider = Provider.of<VpnProvider>(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('VPN App'),
       ),
       body: Center(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly, // Better vertical spacing
           children: <Widget>[
-            const Text(
-              'Select a server:',
+            // Server Selection Area
+            Column(
+              children: [
+                const Text(
+                  'Select a Server',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
+                Consumer<VpnProvider>(
+                  builder: (context, provider, child) {
+                    if (provider.isLoading && provider.servers.isEmpty) {
+                      return const CircularProgressIndicator();
+                    }
+                    if (provider.servers.isEmpty) {
+                      return const Text('No servers available.');
+                    }
+                    return DropdownButton<VpnServer>(
+                      hint: const Text('Choose Server'),
+                      value: provider.selectedServer,
+                      items: provider.servers.map((VpnServer server) {
+                        return DropdownMenuItem<VpnServer>(
+                          value: server,
+                          child: Text(server.country),
+                        );
+                      }).toList(),
+                      onChanged: (VpnServer? newServer) {
+                        if (newServer != null) {
+                          provider.selectServer(newServer);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ],
             ),
+
+            // Connect Button Area
             Consumer<VpnProvider>(
               builder: (context, provider, child) {
-                if (provider.isLoading) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20.0),
-                    child: CircularProgressIndicator(),
-                  );
-                }
-
-                if (provider.servers.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20.0),
-                    child: Text('No servers found. Check your connection or Supabase configuration.'),
-                  );
-                }
-
-                return DropdownButton<VpnServer>(
-                  hint: const Text('Select Server'),
-                  value: provider.selectedServer,
-                  items: provider.servers.map((VpnServer server) {
-                    return DropdownMenuItem<VpnServer>(
-                      value: server,
-                      child: Text(server.country),
-                    );
-                  }).toList(),
-                  onChanged: (VpnServer? newServer) {
-                    if (newServer != null) {
-                      provider.selectServer(newServer);
-                    }
+                return ConnectButton(
+                  vpnStage: provider.vpnStage,
+                  onConnect: () {
+                    provider.connect();
+                  },
+                  onDisconnect: () {
+                    provider.disconnect();
                   },
                 );
               },
             ),
-            const SizedBox(height: 20),
+
+            // Status Info Area
             Consumer<VpnProvider>(
               builder: (context, provider, child) {
-                final isConnecting = provider.isConnecting;
-                final buttonText = isConnecting ? 'CONNECTING...' : 'CONNECT';
-
-                return AnimatedOpacity(
-                  duration: const Duration(milliseconds: 300),
-                  opacity: isConnecting ? 0.5 : 1.0,
-                  child: ElevatedButton(
-                    onPressed: provider.selectedServer == null || isConnecting
-                        ? null
-                        : () => provider.connect(),
-                    child: Text(buttonText),
-                  ),
+                return Column(
+                  children: [
+                    if (provider.vpnStage != null)
+                      Text(
+                        'Stage: ${provider.vpnStage.toString().split('.').last.toUpperCase()}',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                      ),
+                    const SizedBox(height: 5),
+                    if (provider.vpnStatus != null && provider.vpnStatus!.duration != null)
+                      Text(
+                        'Duration: ${provider.vpnStatus!.duration}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    if (provider.vpnStatus != null && provider.vpnStatus!.byteIn != null)
+                      Text(
+                        'Data In: ${provider.vpnStatus!.byteIn}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    if (provider.vpnStatus != null && provider.vpnStatus!.byteOut != null)
+                      Text(
+                        'Data Out: ${provider.vpnStatus!.byteOut}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                  ],
                 );
               },
             ),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: () => vpnProvider.disconnect(),
-              child: const Text('DISCONNECT'),
-            ),
-            const SizedBox(height: 20),
-            if (vpnProvider.vpnStatus != null)
-              Text('Status: ${vpnProvider.vpnStatus!.toJson().toString()}'),
-            if (vpnProvider.vpnStage != null)
-              Text('Stage: ${vpnProvider.vpnStage.toString()}'),
           ],
         ),
       ),

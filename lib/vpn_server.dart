@@ -1,51 +1,56 @@
-import 'dart:developer' as developer;
+import 'dart:convert';
 
 class VpnServer {
-  final String id;
+  final int id;
   final String country;
+  final String config;
   final String username;
   final String password;
-  final String configFile;
+  final String host;
 
   VpnServer({
     required this.id,
     required this.country,
+    required this.config,
     required this.username,
     required this.password,
-    required this.configFile,
+    required this.host,
   });
 
+  // fromJson constructor remains the same
   factory VpnServer.fromJson(Map<String, dynamic> json) {
-    // Log the incoming data for easier debugging in the future.
-    developer.log('Parsing VpnServer from JSON', name: 'vpn_app.data', error: json.toString());
-
-    try {
-      return VpnServer(
-        // Safely handle the ID. If it's null, provide a fallback.
-        // .toString() works reliably on both int and String types.
-        id: (json['id'] ?? 'invalid_id').toString(),
-
-        // Safely handle the country, defaulting to 'N/A' if null.
-        country: json['country'] as String? ?? 'N/A',
-
-        // Safely handle username, defaulting to an empty string.
-        username: json['username'] as String? ?? '',
-
-        // Safely handle password, defaulting to an empty string.
-        password: json['password'] as String? ?? '',
-
-        // The database column is likely 'config_file'.
-        configFile: json['config_file'] as String? ?? '',
-      );
-    } catch (e, s) {
-      developer.log(
-        'Failed to parse VpnServer from JSON',
-        name: 'vpn_app.error',
-        error: {'error': e.toString(), 'json': json},
-        stackTrace: s,
-      );
-      // Re-throw the error so we know something went wrong, but with more context.
-      throw FormatException('Failed to parse VpnServer', json);
-    }
+    return VpnServer(
+      id: json['id'] as int,
+      country: json['country'] as String,
+      config: json['config'] as String,
+      username: json['username'] as String,
+      password: json['password'] as String,
+      host: json['host'] as String,
+    );
   }
+
+  // Add toJson method to convert the object to a Map
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'country': country,
+      'config': config,
+      'username': username,
+      'password': password,
+      'host': host,
+    };
+  }
+
+  // Helper method to encode a list of servers to a JSON string
+  static String encode(List<VpnServer> servers) => json.encode(
+        servers
+            .map<Map<String, dynamic>>((server) => server.toJson())
+            .toList(),
+      );
+
+  // Helper method to decode a JSON string to a list of servers
+  static List<VpnServer> decode(String servers) =>
+      (json.decode(servers) as List<dynamic>)
+          .map<VpnServer>((item) => VpnServer.fromJson(item))
+          .toList();
 }

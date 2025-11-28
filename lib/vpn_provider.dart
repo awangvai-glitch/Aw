@@ -1,109 +1,135 @@
-
-import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:openvpn_flutter/openvpn_flutter.dart';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:openvpn_flutter/openvpn_flutter.dart';
 
 import 'vpn_server.dart';
 
 class VpnProvider with ChangeNotifier {
   final SupabaseClient _supabase;
-  late final OpenVPN _openvpn;
-  VpnStatus? _status;
-  VPNStage? _stage;
-  Timer? _timer;
-
+  late OpenVPN engine;
   List<VpnServer> _servers = [];
   VpnServer? _selectedServer;
   bool _isLoading = false;
+  bool _isConnecting = false;
 
-  VpnProvider(this._supabase) {
-    _openvpn = OpenVPN(
-      onVpnStatusChanged: (VpnStatus? status) {
-        _status = status;
-        print('VPN Status changed: $status');
-        notifyListeners();
-      },
-      onVpnStageChanged: (VPNStage stage, String raw) {
-        _stage = stage;
-        print('VPN Stage changed: $stage, Raw: $raw');
-        notifyListeners();
-      },
-    );
-    fetchVpnServers();
-  }
+  VpnStatus? _vpnStatus;
+  VPNStage? _vpnStage;
 
   List<VpnServer> get servers => _servers;
   VpnServer? get selectedServer => _selectedServer;
-  VpnStatus? get vpnStatus => _status;
-  VPNStage? get vpnStage => _stage;
   bool get isLoading => _isLoading;
+  bool get isConnecting => _isConnecting;
+  VpnStatus? get vpnStatus => _vpnStatus;
+  VPNStage? get vpnStage => _vpnStage;
 
-  bool get isConnecting => _stage != null && _stage != VPNStage.disconnected && _stage != VPNStage.error;
+  static const String _serversCacheKey = 'vpn_servers_cache';
 
-  Future<void> fetchVpnServers() async {
+  VpnProvider(this._supabase) {
+    // Initialize the VPN engine
+    engine = OpenVPN(
+      onVpnStatusChanged: (VpnStatus? status) { 
+        _vpnStatus = status;
+        notifyListeners();
+      },
+      onVpnStageChanged: (VPNStage? stage, String? raw) { 
+        _vpnStage = stage;
+        notifyListeners();
+      },
+    );
+
+    engine.initialize();
+    fetchServers();
+  }
+
+  Future<void> _saveServersToCache(List<VpnServer> servers) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encodedData = VpnServer.encode(servers);
+    await prefs.setString(_serversCacheKey, encodedData);
+  }
+
+  Future<void> _loadServersFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedData = prefs.getString(_serversCacheKey);
+    if (cachedData != null && cachedData.isNotEmpty) {
+      _servers = VpnServer.decode(cachedData);
+      if (_selectedServer != null) {
+        try {
+          // Find the previously selected server in the new list
+          _selectedServer = _servers.firstWhere((s) => s.id == _selectedServer!.id);
+        } catch (e) {
+          // If not found, select the first available server or null
+          _selectedServer = _servers.isNotEmpty ? _servers.first : null;
+        }
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchServers() async {
     _isLoading = true;
     notifyListeners();
 
-    print("Fetching VPN servers from Supabase...");
+    await _loadServersFromCache();
+    if (_servers.isNotEmpty) {
+      _isLoading = false;
+      notifyListeners();
+    }
 
     try {
-      final response = await _supabase.from('servers').select(); // Corrected table name
-      print("Supabase response: $response");
+      final response = await _supabase.from('servers').select();
+      final List<dynamic> data = response as List<dynamic>;
+      final newServers = data.map((json) => VpnServer.fromJson(json as Map<String, dynamic>)).toList();
 
-      _servers = response.map<VpnServer>((json) => VpnServer.fromJson(json)).toList();
-      print("Successfully fetched ${_servers.length} servers.");
+      if (json.encode(_servers.map((e) => e.toJson()).toList()) != json.encode(newServers.map((e) => e.toJson()).toList())) {
+        _servers = newServers;
+        await _saveServersToCache(_servers);
+      }
 
-    } catch (e, s) {
-      print('Error fetching VPN servers: $e');
-      print('Stacktrace: $s');
-      _servers = [];
+      if (_selectedServer == null && _servers.isNotEmpty) {
+        _selectedServer = _servers[0];
+      }
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching from Supabase: $e');
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-
   void selectServer(VpnServer server) {
     _selectedServer = server;
     notifyListeners();
   }
 
-  void connect() {
-    if (_selectedServer == null || isConnecting) return;
+  Future<void> connect() async {
+    if (_selectedServer == null) return;
 
-    // --- Detailed Logging --- 
-    print("--- Attempting to Connect ---");
-    print("Server: ${_selectedServer!.country}");
-    print("Username: ${_selectedServer!.username}");
-    // Do not log the password for security.
-    if (_selectedServer!.configFile.isNotEmpty) {
-      print("Config File (first 100 chars): ${_selectedServer!.configFile.substring(0, 100)}...");
-    } else {
-      print("Config File is EMPTY!");
-    }
-    print("-----------------------------");
-    // --- End of Logging ---
-
-    _stage = VPNStage.connecting;
+    _isConnecting = true;
     notifyListeners();
 
-    _openvpn.connect(
-      _selectedServer!.configFile,
-      _selectedServer!.country,
-      username: _selectedServer!.username,
-      password: _selectedServer!.password,
-    );
+    try {
+      engine.connect(
+          _selectedServer!.config,
+          _selectedServer!.country, // Using country as the display name
+          username: _selectedServer!.username,
+          password: _selectedServer!.password,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('VPN Connection Error: $e');
+      }
+    } finally {
+      _isConnecting = false;
+      notifyListeners();
+    }
   }
 
-  void disconnect() {
-    _openvpn.disconnect();
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  Future<void> disconnect() async {
+    engine.disconnect();
   }
 }
