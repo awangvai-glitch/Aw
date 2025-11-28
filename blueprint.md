@@ -1,48 +1,45 @@
-# Proyek Aplikasi VPN dengan Flutter
+# VPN App Blueprint
 
-## Gambaran Umum
+## Overview
 
-Proyek ini bertujuan untuk membangun aplikasi VPN fungsional untuk Android menggunakan Flutter. Tujuan utamanya adalah menyediakan alat yang mudah digunakan bagi pengguna untuk mengamankan dan mengalihkan seluruh lalu lintas internet perangkat mereka melalui server. Aplikasi ini akan menampilkan antarmuka yang sederhana dan intuitif untuk mengelola koneksi VPN.
+This document outlines the architecture, features, and development plan for the Flutter VPN application. The app connects to VPN servers managed via a Supabase backend.
 
-## Fitur Utama
+## Implemented Features & Design
 
-*   **Koneksi VPN Sistem-Luas:** Mengalihkan semua lalu lintas internet dari perangkat.
-*   **Antarmuka Sederhana:** UI minimalis dengan tombol "Connect/Disconnect" yang jelas dan tampilan status koneksi.
-*   **Manajemen Status Koneksi:** Memberikan umpan balik visual yang jelas tentang status VPN (Disconnected, Connecting, Connected, Disconnecting).
-*   **Izin Asli (Native Permission):** Menangani permintaan izin VPN dari sistem operasi Android secara benar.
+*   **UI Framework:** Flutter
+*   **State Management:** `provider` package (`ChangeNotifierProvider`)
+*   **Backend:** Supabase for storing and retrieving VPN server list.
+    *   **Table:** `servers`
+*   **VPN Protocol:** OpenVPN, managed via the `openvpn_flutter` package.
+*   **Core UI (`lib/main.dart`):**
+    *   A main screen (`VpnHomePage`) displays the app's core functionality.
+    *   A loading indicator (`CircularProgressIndicator`) is shown while fetching data.
+    *   A dropdown menu (`DropdownButton`) lists available VPN servers.
+    *   "CONNECT" and "DISCONNECT" buttons control the VPN state.
+*   **State & Logic (`lib/vpn_provider.dart`):**
+    *   `VpnProvider` class manages all application state.
+    *   `fetchVpnServers()`: Asynchronously fetches server data from the `servers` table in Supabase.
+    *   Handles loading, connection, and status states.
+*   **Data Model (`lib/vpn_server.dart`):**
+    *   `VpnServer` class represents a single VPN server.
+    *   **Enhanced `fromJson` factory method:**
+        *   **Robust Parsing:** Implemented safe type casting (`as String?`) and null-coalescing operators (`??`) to prevent crashes from unexpected `null` or incorrect data types from Supabase.
+        *   **Detailed Logging:** Added `dart:developer` logging to output the raw JSON being parsed, making future data-related bugs much easier to diagnose.
+        *   **Error Handling:** Wrapped the parsing logic in a `try-catch` block to gracefully handle malformed data and throw a more informative `FormatException`.
+*   **Android Configuration (`android/app/src/main/AndroidManifest.xml`):**
+    *   Includes necessary permissions for `INTERNET` and VPN services.
+*   **Supabase Security:**
+    *   A Row Level Security (RLS) policy (`Allow public read access`) is in place on the `servers` table to allow clients to fetch the server list.
 
-## Arsitektur & Pustaka
+## Current Goal: Final Validation and Connection Test
 
-*   **Manajemen State:** `provider`
-*   **Manajemen VPN (Native):** `flutter_vpn` (paket yang dipilih setelah evaluasi)
-*   **Penyimpanan Lokal (Direncanakan):** `shared_preferences` untuk menyimpan detail koneksi.
+The app was previously failing due to a combination of an incorrect table name and fragile data parsing. Both issues have been addressed.
 
----
+**Plan:**
 
-## Rencana Implementasi Saat Ini: Integrasi `flutter_vpn`
+1.  **DONE:** Corrected the table name from `vpn_servers` to `servers` in `lib/vpn_provider.dart`.
+2.  **DONE:** Created and instructed the user to apply the correct RLS policy to the `servers` table in Supabase.
+3.  **DONE:** Fortified the `VpnServer.fromJson` method to handle potential data inconsistencies gracefully.
+4.  **PENDING:** Run the application to confirm that the server list is now correctly fetched and displayed in the UI.
+5.  **PENDING:** Perform a full connection test by selecting a server and tapping the "CONNECT" button.
 
-**Tujuan:** Mengganti logika simulasi dengan implementasi VPN fungsional menggunakan paket `flutter_vpn`.
-
-**Histori Keputusan (Penting):**
-Upaya awal menggunakan paket `flutter_vpn_service` gagal. Paket tersebut tampaknya ditinggalkan atau tidak stabil (hanya ~35 unduhan), yang menyebabkan serangkaian error API yang tidak dapat diselesaikan. Sebagai respons, kami telah **menghapus `flutter_vpn_service`** dan beralih ke paket **`flutter_vpn`** yang lebih matang dan banyak digunakan. Proyek sekarang berada dalam keadaan bersih dan siap untuk integrasi baru.
-
-**Langkah-langkah Rinci Berikutnya:**
-
-1.  **Studi Paket `flutter_vpn`:**
-    *   Mencari dokumentasi dan contoh resmi untuk `flutter_vpn`.
-    *   Memahami API utamanya, termasuk metode untuk `connect`, `disconnect`, dan cara mendengarkan perubahan status.
-
-2.  **Konfigurasi Proyek Android (jika diperlukan):**
-    *   Memeriksa dokumentasi `flutter_vpn` untuk setiap konfigurasi `AndroidManifest.xml` atau `build.gradle` yang diperlukan. Umumnya, ini melibatkan penambahan izin `android.permission.BIND_VPN_SERVICE`.
-
-3.  **Implementasi Logika di `VpnProvider` (`lib/main.dart`):**
-    *   Mengimpor `package:flutter_vpn/flutter_vpn.dart`.
-    *   Mengganti metode `connect()` dan `disconnect()` yang disimulasikan dengan panggilan API `flutter_vpn` yang sebenarnya.
-    *   Mengatur listener untuk perubahan status dari `flutter_vpn` dan memperbarui state `VpnProvider` sesuai dengan itu.
-    *   Menangani logika untuk meminta izin VPN dari pengguna saat pertama kali koneksi.
-
-4.  **Pengujian & Iterasi:**
-    *   Menjalankan aplikasi di perangkat Android fisik (emulator mungkin tidak mendukung VpnService).
-    *   Memverifikasi bahwa tombol "Connect" berhasil meminta izin dan membuat koneksi VPN.
-    *   Memverifikasi bahwa tombol "Disconnect" menghentikan koneksi.
-    *   Memeriksa log untuk setiap error selama siklus hidup koneksi.

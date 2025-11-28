@@ -19,7 +19,7 @@ class VpnProvider with ChangeNotifier {
 
   VpnProvider(this._supabase) {
     _openvpn = OpenVPN(
-      onVpnStatusChanged: (VpnStatus status) {
+      onVpnStatusChanged: (VpnStatus? status) {
         _status = status;
         print('VPN Status changed: $status');
         notifyListeners();
@@ -48,15 +48,11 @@ class VpnProvider with ChangeNotifier {
     print("Fetching VPN servers from Supabase...");
 
     try {
-      final response = await _supabase.from('vpn_servers').select();
+      final response = await _supabase.from('servers').select(); // Corrected table name
       print("Supabase response: $response");
 
-      if (response != null) {
-        _servers = response.map<VpnServer>((json) => VpnServer.fromJson(json)).toList();
-        print("Successfully fetched ${_servers.length} servers.");
-      } else {
-        print("No data received from Supabase.");
-      }
+      _servers = response.map<VpnServer>((json) => VpnServer.fromJson(json)).toList();
+      print("Successfully fetched ${_servers.length} servers.");
 
     } catch (e, s) {
       print('Error fetching VPN servers: $e');
@@ -76,6 +72,20 @@ class VpnProvider with ChangeNotifier {
 
   void connect() {
     if (_selectedServer == null || isConnecting) return;
+
+    // --- Detailed Logging --- 
+    print("--- Attempting to Connect ---");
+    print("Server: ${_selectedServer!.country}");
+    print("Username: ${_selectedServer!.username}");
+    // Do not log the password for security.
+    if (_selectedServer!.configFile.isNotEmpty) {
+      print("Config File (first 100 chars): ${_selectedServer!.configFile.substring(0, 100)}...");
+    } else {
+      print("Config File is EMPTY!");
+    }
+    print("-----------------------------");
+    // --- End of Logging ---
+
     _stage = VPNStage.connecting;
     notifyListeners();
 

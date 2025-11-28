@@ -8,8 +8,9 @@ import 'vpn_server.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(
-    url: 'https://ejpukqbkfivgnkffmlux.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcHVrcWJrZml2Z25rZmZtbHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTU2MDQyMzMsImV4cCI6MjAzMTE4MDIzM30.4i4Lz-_sI7nwsWJ5Vp4i_9M3D_3V3rU_i-Hk2AqKxOM',
+    // Corrected Supabase URL and anonKey provided by the user.
+    url: 'https://gmndebizslctonvqvtnf.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtbmRlYml6c2xjdG9udnF2dG5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MzI4ODQsImV4cCI6MjA3OTIwODg4NH0.HdpFu0F1k2bwsY1TWImuHWBVw9eIrVweJWi0g30wCcI',
   );
   runApp(const MyApp());
 }
