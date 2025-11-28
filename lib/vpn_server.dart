@@ -17,19 +17,18 @@ class VpnServer {
     required this.host,
   });
 
-  // fromJson constructor remains the same
+  // fromJson constructor made robust against null values
   factory VpnServer.fromJson(Map<String, dynamic> json) {
     return VpnServer(
-      id: json['id'] as int,
-      country: json['country'] as String,
-      config: json['config'] as String,
-      username: json['username'] as String,
-      password: json['password'] as String,
-      host: json['host'] as String,
+      id: json['id'] as int? ?? 0, // Default to 0 if id is null
+      country: json['country'] as String? ?? '', // Default to empty string
+      config: json['config'] as String? ?? '', // Default to empty string
+      username: json['username'] as String? ?? '', // Default to empty string
+      password: json['password'] as String? ?? '', // Default to empty string
+      host: json['host'] as String? ?? '', // Default to empty string
     );
   }
 
-  // Add toJson method to convert the object to a Map
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -41,16 +40,14 @@ class VpnServer {
     };
   }
 
-  // Helper method to encode a list of servers to a JSON string
   static String encode(List<VpnServer> servers) => json.encode(
         servers
             .map<Map<String, dynamic>>((server) => server.toJson())
             .toList(),
       );
 
-  // Helper method to decode a JSON string to a list of servers
   static List<VpnServer> decode(String servers) =>
       (json.decode(servers) as List<dynamic>)
-          .map<VpnServer>((item) => VpnServer.fromJson(item))
+          .map<VpnServer>((item) => VpnServer.fromJson(item as Map<String, dynamic>))
           .toList();
 }
